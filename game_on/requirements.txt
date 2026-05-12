@@ -1,0 +1,11 @@
+fastapi
+uvicorn
+streamlit
+sentence-transformers
+torch
+numpy
+pandas
+requests
+openai
+google-cloud-storage
+scikit-learn

@@ -1,0 +1,17 @@
+# Python
+__pycache__/
+*.pyc
+
+# ENV
+.env
+*.env
+
+# Embeddings
+embeddings/
+*.npy
+
+# Streamlit cache
+.streamlit/
+
+# Mac/Linux
+.DS_Store
