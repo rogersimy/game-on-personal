@@ -1,10 +1,10 @@
 from openai import OpenAI
-from pln_model.params import OPENAI_API_KEY
 
+from pln_model.params import (
+    OPENAI_API_KEY,
+    OPENAI_MODEL
+)
 
-# =====================================================
-# CLIENT
-# =====================================================
 
 client = None
 
@@ -15,13 +15,19 @@ if OPENAI_API_KEY:
     )
 
 
-# =====================================================
-# QUERY REWRITER
-# =====================================================
-
 def rewrite_query(query):
 
-    if not client:
+    """
+    Uses OpenAI/Grok-style query expansion
+    to enrich semantic search.
+    """
+
+    if client is None:
+
+        print(
+            "\nNo OPENAI_API_KEY found."
+            "\nUsing raw query.\n"
+        )
 
         return query
 
@@ -31,7 +37,7 @@ def rewrite_query(query):
 You are a video game search assistant.
 
 Expand the following user query into a richer
-semantic game search query.
+semantic video game search query.
 
 Rules:
 - Keep original meaning
@@ -39,6 +45,7 @@ Rules:
 - Add gameplay genres
 - Add likely mechanics
 - Add thematic concepts
+- Add synonyms
 - Return ONLY the rewritten query
 - Do not explain
 
@@ -47,7 +54,7 @@ User query:
 """
 
         response = client.chat.completions.create(
-            model="gpt-4.1-mini",
+            model=OPENAI_MODEL,
             messages=[
                 {
                     "role": "user",
@@ -57,7 +64,7 @@ User query:
             temperature=0.3
         )
 
-        rewritten = (
+        rewritten_query = (
             response
             .choices[0]
             .message
@@ -65,10 +72,14 @@ User query:
             .strip()
         )
 
-        return rewritten
+        print("\nREWRITTEN QUERY:")
+        print(rewritten_query)
+        print()
+
+        return rewritten_query
 
     except Exception as e:
 
-        print(e)
+        print(f"\nQuery rewrite error: {e}\n")
 
         return query

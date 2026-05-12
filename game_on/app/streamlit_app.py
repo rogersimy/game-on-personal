@@ -1,88 +1,54 @@
-import streamlit as st
 import requests
+import streamlit as st
 
 
 API_URL = "http://127.0.0.1:8001/query"
 
 
-# =====================================================
-# PAGE
-# =====================================================
-
 st.set_page_config(
-    page_title="Game-On",
+    page_title="Game On",
     layout="wide"
 )
 
 st.title("🎮 Game On")
 
-
-# =====================================================
-# QUERY
-# =====================================================
-
 query = st.text_input(
-    "Describe the game you are searching",
-    "dungeon and dragons"
+    "Describe the game you are searching"
 )
 
+# -----------------------------
+# FILTERS
+# -----------------------------
 
-# =====================================================
-# SIDEBAR
-# =====================================================
+st.sidebar.header("Filters")
 
-st.sidebar.title("Filters")
-
-genre = st.sidebar.selectbox(
+genre = st.sidebar.text_input(
     "Genre",
-    [
-        "Any",
-        "Action",
-        "Adventure",
-        "RPG",
-        "Strategy",
-        "Simulation",
-        "Indie",
-        "Sports",
-        "Racing"
-    ]
+    value="All"
 )
 
 content_type = st.sidebar.selectbox(
     "Content Type",
-    [
-        "Any",
-        "Safe",
-        "Adult",
-        "Kids"
-    ]
+    ["all", "safe", "adult"]
 )
 
-price_range = st.sidebar.slider(
+min_price, max_price = st.sidebar.slider(
     "Price Range",
-    0.0,
-    100.0,
-    (0.0, 40.0)
+    0,
+    100,
+    (0, 50)
 )
 
-year_range = st.sidebar.slider(
+min_year, max_year = st.sidebar.slider(
     "Release Year",
-    1980,
-    2026,
-    (2010, 2026)
+    1990,
+    2025,
+    (2000, 2025)
 )
 
-n_top = st.sidebar.slider(
-    "Results",
-    1,
-    20,
-    5
-)
-
-
-# =====================================================
+# -----------------------------
 # SEARCH
-# =====================================================
+# -----------------------------
 
 if st.button("Search Games"):
 
@@ -92,159 +58,75 @@ if st.button("Search Games"):
             API_URL,
             json={
                 "query": query,
-                "n_top": n_top,
                 "genre": genre,
                 "content_type": content_type,
-                "min_price": price_range[0],
-                "max_price": price_range[1],
-                "min_year": year_range[0],
-                "max_year": year_range[1]
-            },
-            timeout=120
+                "min_price": min_price,
+                "max_price": max_price,
+                "min_year": min_year,
+                "max_year": max_year
+            }
         )
 
-    st.write(
-        "Status code:",
-        response.status_code
-    )
+    st.write(f"Status code: {response.status_code}")
 
-    if response.status_code != 200:
+    if response.status_code == 200:
+
+        data = response.json()
+
+        rewritten_query = data["rewritten_query"]
+
+        st.markdown("### 🧠 Rewritten Query")
+
+        st.info(rewritten_query)
+
+        results = data["results"]
+
+        st.success(f"{len(results)} games found")
+
+        for game in results:
+
+            with st.container():
+
+                st.markdown(f"## {game['name']}")
+
+                st.markdown(
+                    f"⭐ Similarity: {round(game['final_score'], 4)}"
+                )
+
+                st.markdown(
+                    f"🎮 Genre: {game.get('genres', 'Unknown')}"
+                )
+
+                st.markdown(
+                    f"🏷️ Tags: {game.get('tags', 'Unknown')}"
+                )
+
+                st.markdown(
+                    f"📅 Year: {game.get('release_year', 'Unknown')}"
+                )
+
+                st.markdown(
+                    f"💾 Dataset Price: ${game.get('price_num', 0)}"
+                )
+
+                steam_price = game.get("steam_price")
+
+                if steam_price:
+                    st.markdown(
+                        f"💰 **Steam Price:** {steam_price}"
+                    )
+
+                steam_url = game.get("steam_url")
+
+                if steam_url:
+                    st.link_button(
+                        "Steam Page",
+                        steam_url
+                    )
+
+                st.divider()
+
+    else:
 
         st.error("API Error")
-
-        st.code(response.text)
-
-        st.stop()
-
-    data = response.json()
-
-    recommendations = data.get(
-        "recommendations",
-        []
-    )
-
-    if len(recommendations) == 0:
-
-        st.warning("No games found")
-
-        st.stop()
-
-    # =================================================
-    # REWRITTEN QUERY
-    # =================================================
-
-    st.subheader("🧠 Rewritten Query")
-
-    st.info(
-        recommendations[0].get(
-            "rewritten_query",
-            query
-        )
-    )
-
-    st.success(
-        f"{len(recommendations)} games found"
-    )
-
-    # =================================================
-    # RESULTS
-    # =================================================
-
-    for game in recommendations:
-
-        st.divider()
-
-        col1, col2 = st.columns(
-            [1, 3]
-        )
-
-        # =============================================
-        # IMAGE
-        # =============================================
-
-        with col1:
-
-            image_url = game.get(
-                "image_url"
-            )
-
-            if image_url:
-
-                st.image(
-                    image_url,
-                    width="stretch"
-                )
-
-        # =============================================
-        # INFO
-        # =============================================
-
-        with col2:
-
-            st.subheader(
-                game.get("name")
-            )
-
-            st.write(
-                f"⭐ Similarity: {game.get('score')}"
-            )
-
-            st.write(
-                f"🎮 Genre: {game.get('genre')}"
-            )
-
-            st.write(
-                f"🏷️ Tags: {game.get('tags')}"
-            )
-
-            st.write(
-                f"📅 Year: {game.get('year')}"
-            )
-
-            st.write(
-                f"💾 Dataset Price: ${game.get('price')}"
-            )
-
-            # =========================================
-            # STEAM PRICE
-            # =========================================
-
-            if game.get("steam_price") == "Free":
-
-                st.success(
-                    "🟢 Free to Play"
-                )
-
-            elif game.get("steam_price") is not None:
-
-                if game.get(
-                    "discount_percent",
-                    0
-                ) > 0:
-
-                    st.error(
-                        f"🔥 Steam Discount: "
-                        f"${game.get('discount_price')} "
-                        f"(-{game.get('discount_percent')}%)"
-                    )
-
-                    st.caption(
-                        f"Original: "
-                        f"${game.get('steam_price')}"
-                    )
-
-                else:
-
-                    st.info(
-                        f"💰 Steam Price: "
-                        f"${game.get('steam_price')}"
-                    )
-
-            url = game.get("url")
-
-            if url:
-
-                st.link_button(
-                    "Steam Page",
-                    url
-                )
+        st.write(response.text)

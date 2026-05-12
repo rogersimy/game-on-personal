@@ -1,118 +1,119 @@
 import pandas as pd
-import re
 
-MAX_WORDS = 60
-
-USELESS_TAGS = [
-    "singleplayer",
-    "multiplayer",
-    "indie",
-    "casual",
-    "early access",
-    "steam achievements",
-    "steam cloud",
-    "controller support"
-]
-
-def normalize_text(text):
-
-    text = str(text).lower()
-
-    text = text.replace("&", "and")
-
-    text = re.sub(r"[^a-z0-9\s]", " ", text)
-
-    text = re.sub(r"\s+", " ", text)
-
-    return text.strip()
-
-def truncate_words(text):
-
-    words = str(text).split()
-
-    return " ".join(words[:MAX_WORDS])
-
-def clean_tags(text):
-
-    if pd.isna(text):
-
-        return ""
-
-    tags = [
-        t.strip()
-        for t in str(text).split(",")
-    ]
-
-    tags = [
-        t for t in tags
-        if t.lower() not in USELESS_TAGS
-    ]
-
-    return ", ".join(tags)
 
 def limpieza(df):
 
     df = df.copy()
 
+    df.columns = (
+        df.columns
+        .str.lower()
+    )
+
+    # =========================
+    # PRICE
+    # =========================
+
+    if "price" not in df.columns:
+
+        df["price"] = "0"
+
+    df["price"] = (
+        df["price"]
+        .astype(str)
+        .str.replace("$", "", regex=False)
+        .str.replace(",", "", regex=False)
+        .str.strip()
+    )
+
+    df["price_num"] = pd.to_numeric(
+        df["price"],
+        errors="coerce"
+    ).fillna(0)
+
+    # =========================
+    # YEAR
+    # =========================
+
+    if "release_date" in df.columns:
+
+        df["release_date"] = pd.to_datetime(
+            df["release_date"],
+            errors="coerce"
+        )
+
+        df["year"] = (
+            df["release_date"]
+            .dt.year
+            .fillna(0)
+            .astype(int)
+        )
+
+    else:
+
+        df["year"] = 0
+
+    # =========================
+    # TEXT COLUMNS
+    # =========================
+
     text_columns = [
         "name",
-        "genre",
-        "popular_tags",
-        "game_description"
+        "genres",
+        "tags",
+        "game_details"
     ]
 
     for col in text_columns:
+
+        if col not in df.columns:
+
+            df[col] = ""
 
         df[col] = (
             df[col]
             .fillna("")
             .astype(str)
-            .apply(normalize_text)
+            .str.lower()
         )
 
-    df["popular_tags"] = (
-        df["popular_tags"]
-        .apply(clean_tags)
-    )
+    # =========================
+    # CONTENT TYPE
+    # =========================
 
-    df["game_description"] = (
-        df["game_description"]
-        .apply(truncate_words)
-    )
+    if "required_age" in df.columns:
 
-    df["release_date"] = (
-        df["release_date"]
-        .astype(str)
-        .str.extract(r'(\d{4})')
-    )
+        df["content_type"] = (
+            df["required_age"]
+            .apply(
+                lambda x:
+                "adult"
+                if pd.to_numeric(
+                    x,
+                    errors="coerce"
+                ) >= 18
+                else "general"
+            )
+        )
 
-    df["release_date"] = pd.to_numeric(
-        df["release_date"],
-        errors="coerce"
-    ).fillna(0).astype(int)
+    else:
 
-    df["original_price"] = (
-        df["original_price"]
-        .replace({"Free": "0"})
-        .astype(str)
-        .str.replace("$", "", regex=False)
-    )
+        df["content_type"] = "general"
 
-    df["original_price"] = pd.to_numeric(
-        df["original_price"],
-        errors="coerce"
-    ).fillna(0)
+    # =========================
+    # COMBINED TEXT
+    # =========================
 
-    df["embedding"] = (
+    df["combined_text"] = (
 
-        (df["name"] + ". ") * 3 +
+        df["name"] + " " +
 
-        (df["genre"] + ". ") * 2 +
+        df["genres"] + " " +
 
-        (df["popular_tags"] + ". ") * 2 +
+        df["tags"] + " " +
 
-        df["game_description"]
+        df["game_details"]
 
     )
 
-    return df.reset_index(drop=True)
+    return df

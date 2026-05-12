@@ -1,66 +1,54 @@
+import numpy as np
+
 from sentence_transformers import SentenceTransformer
 
-_model_cache = {}
+from tqdm import tqdm
+
+from pln_model.params import (
+    EMBEDDING_MODEL_NAME
+)
 
 
-# =====================================================
-# LOAD MODEL
-# =====================================================
+def load_embedding_model():
 
-def get_model(
-    model_name,
-    device="cpu"
-):
+    print(
+        f"\nLoading model:"
+        f" {EMBEDDING_MODEL_NAME}\n"
+    )
 
-    global _model_cache
+    model = SentenceTransformer(
+        EMBEDDING_MODEL_NAME
+    )
 
-    key = f"{model_name}_{device}"
+    return model
 
-    if key not in _model_cache:
-
-        print(f"\nLoading model: {model_name}\n")
-
-        _model_cache[key] = SentenceTransformer(
-            model_name,
-            device=device
-        )
-
-    return _model_cache[key]
-
-
-# =====================================================
-# GENERATE EMBEDDINGS
-# =====================================================
 
 def generate_embeddings(
     texts,
-    model_name,
-    batch_size=256,
-    device="cpu"
+    model,
+    batch_size=128
 ):
 
-    model = get_model(
-        model_name=model_name,
-        device=device
-    )
+    embeddings = []
 
-    print(
-        f"\nGenerating embeddings for "
-        f"{len(texts)} games\n"
-    )
+    for i in tqdm(
+        range(0, len(texts), batch_size),
+        desc="Generating embeddings"
+    ):
 
-    embeddings = model.encode(
-        texts,
-        batch_size=batch_size,
-        show_progress_bar=True,
-        convert_to_numpy=True,
-        normalize_embeddings=True
-    )
+        batch = texts[
+            i:i + batch_size
+        ]
 
-    print("\nEmbeddings generated successfully")
+        emb = model.encode(
+            batch,
+            show_progress_bar=False,
+            convert_to_numpy=True,
+            normalize_embeddings=True
+        )
 
-    print(
-        f"Embeddings shape: {embeddings.shape}"
-    )
+        embeddings.append(emb)
+
+    embeddings = np.vstack(embeddings)
 
     return embeddings

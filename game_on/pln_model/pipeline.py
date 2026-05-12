@@ -1,15 +1,17 @@
 import os
 import numpy as np
 
-from pln_model.params import *
+from pln_model.data import (
+    load_data
+)
 
-from pln_model.data import load_raw_data
-
-from pln_model.limpieza import limpieza
+from pln_model.limpieza import (
+    limpieza
+)
 
 from pln_model.embeddings import (
-    generate_embeddings,
-    get_model
+    load_embedding_model,
+    generate_embeddings
 )
 
 from pln_model.gcs import (
@@ -17,72 +19,104 @@ from pln_model.gcs import (
     upload_embeddings_to_gcs
 )
 
+from pln_model.params import (
 
-# =====================================================
-# PIPELINE
-# =====================================================
+    EMBEDDINGS_PATH,
+
+    GCS_BUCKET_NAME,
+
+    GCS_EMBEDDINGS_BLOB_NAME
+)
+
 
 def load_pipeline():
 
     print("\nLoading dataset...\n")
 
-    df = load_raw_data(
-        CSV_PATH
-    )
+    df = load_data()
 
-    print(
-        f"Original dataset: {df.shape}"
-    )
-
-    # =================================================
-    # CLEAN
-    # =================================================
+    print("\nCleaning dataset...\n")
 
     df = limpieza(df)
 
-    print(
-        f"After cleaning: {df.shape}"
-    )
+    model = load_embedding_model()
 
-    df = df.dropna(
-        subset=["embedding"]
-    )
+    embeddings = None
 
-    df = df.reset_index(
-        drop=True
-    )
+    # =========================
+    # LOCAL EMBEDDINGS
+    # =========================
 
-    # =================================================
-    # EMBEDDINGS
-    # =================================================
-
-    if not os.path.exists(
+    if os.path.exists(
         EMBEDDINGS_PATH
     ):
 
         print(
-            "\nDownloading embeddings from GCS...\n"
+            "\nLoading local embeddings...\n"
         )
+
+        embeddings = np.load(
+            EMBEDDINGS_PATH
+        )
+
+    else:
+
+        # =========================
+        # GCS DOWNLOAD
+        # =========================
 
         try:
 
+            print(
+                "\nDownloading embeddings"
+                " from GCS...\n"
+            )
+
             download_embeddings_from_gcs(
-                bucket_name=GCS_BUCKET,
-                source_blob_name=GCS_EMBEDDINGS_FILE,
-                destination_file_name=EMBEDDINGS_PATH
+                bucket_name=
+                GCS_BUCKET_NAME,
+
+                source_blob_name=
+                GCS_EMBEDDINGS_BLOB_NAME,
+
+                destination_file_name=
+                EMBEDDINGS_PATH
+            )
+
+            embeddings = np.load(
+                EMBEDDINGS_PATH
             )
 
         except Exception as e:
 
+            print(
+                "\nCould not download"
+                " embeddings.\n"
+            )
+
             print(e)
 
+            # =========================
+            # GENERATE EMBEDDINGS
+            # =========================
+
             print(
-                "\nGenerating embeddings locally...\n"
+                "\nGenerating embeddings...\n"
             )
 
             embeddings = generate_embeddings(
-                texts=df["embedding"].tolist(),
-                model_name=MODEL_NAME
+                texts=df[
+                    "combined_text"
+                ].tolist(),
+
+                model=model,
+
+                batch_size=128
+            )
+
+            os.makedirs(
+                "embeddings",
+                exist_ok=True
             )
 
             np.save(
@@ -90,50 +124,29 @@ def load_pipeline():
                 embeddings
             )
 
-            print(
-                "\nUploading embeddings to GCS...\n"
-            )
+            # =========================
+            # UPLOAD TO GCS
+            # =========================
 
-            upload_embeddings_to_gcs(
-                bucket_name=GCS_BUCKET,
-                source_file_name=EMBEDDINGS_PATH,
-                destination_blob_name=GCS_EMBEDDINGS_FILE
-            )
+            try:
 
-    print("\nLoading embeddings...\n")
+                upload_embeddings_to_gcs(
+                    bucket_name=
+                    GCS_BUCKET_NAME,
 
-    embeddings = np.load(
-        EMBEDDINGS_PATH,
-        allow_pickle=True
+                    source_file_name=
+                    EMBEDDINGS_PATH,
+
+                    destination_blob_name=
+                    GCS_EMBEDDINGS_BLOB_NAME
+                )
+
+            except Exception as upload_error:
+
+                print(upload_error)
+
+    return (
+        df,
+        embeddings,
+        model
     )
-
-    print(
-        f"Embeddings shape: {embeddings.shape}"
-    )
-
-    # =================================================
-    # ALIGNMENT
-    # =================================================
-
-    min_size = min(
-        len(df),
-        len(embeddings)
-    )
-
-    df = df.iloc[:min_size]
-
-    embeddings = embeddings[:min_size]
-
-    # =================================================
-    # MODEL
-    # =================================================
-
-    model = get_model(
-        MODEL_NAME
-    )
-
-    print(
-        "\nPipeline loaded successfully\n"
-    )
-
-    return df, embeddings, model

@@ -1,219 +1,16 @@
-from sentence_transformers import util
-import torch
 import numpy as np
-import requests
 
-from pln_model.query_rewriter import rewrite_query
+from sklearn.metrics.pairwise import (
+    cosine_similarity
+)
 
+from pln_model.query_rewriter import (
+    rewrite_query
+)
 
-# =====================================================
-# TAGS
-# =====================================================
-
-ADULT_TAGS = [
-    "nudity",
-    "sexual",
-    "hentai",
-    "adult",
-    "nsfw",
-    "explicit"
-]
-
-KIDS_TAGS = [
-    "kids",
-    "family",
-    "cartoon",
-    "cute",
-    "education"
-]
-
-
-# =====================================================
-# CACHE
-# =====================================================
-
-STEAM_PRICE_CACHE = {}
-
-
-# =====================================================
-# STEAM API
-# =====================================================
-
-def get_steam_price(app_id):
-
-    if app_id in STEAM_PRICE_CACHE:
-
-        return STEAM_PRICE_CACHE[app_id]
-
-    try:
-
-        url = (
-            "https://store.steampowered.com/api/appdetails"
-            f"?appids={app_id}"
-            "&cc=us"
-        )
-
-        response = requests.get(
-            url,
-            timeout=5
-        )
-
-        data = response.json()
-
-        if not data[str(app_id)]["success"]:
-
-            return None
-
-        game_data = data[str(app_id)]["data"]
-
-        if game_data.get("is_free"):
-
-            result = {
-                "steam_price": "Free",
-                "discount_price": None,
-                "discount_percent": 0
-            }
-
-            STEAM_PRICE_CACHE[app_id] = result
-
-            return result
-
-        price_data = game_data.get("price_overview")
-
-        if not price_data:
-
-            return None
-
-        result = {
-            "steam_price": price_data["initial"] / 100,
-            "discount_price": price_data["final"] / 100,
-            "discount_percent": price_data["discount_percent"]
-        }
-
-        STEAM_PRICE_CACHE[app_id] = result
-
-        return result
-
-    except Exception as e:
-
-        print(f"Steam API Error: {e}")
-
-        return None
-
-
-# =====================================================
-# FILTERS
-# =====================================================
-
-def apply_hard_filters(
-    df,
-    genre=None,
-    content_type=None,
-    min_price=0,
-    max_price=999,
-    min_year=1970,
-    max_year=2030
-):
-
-    filtered_df = df.copy()
-
-    # =================================================
-    # PRICE
-    # =================================================
-
-    filtered_df = filtered_df[
-        (
-            filtered_df["original_price"] >= min_price
-        ) &
-        (
-            filtered_df["original_price"] <= max_price
-        )
-    ]
-
-    # =================================================
-    # YEAR
-    # =================================================
-
-    filtered_df = filtered_df[
-        (
-            filtered_df["release_date"] >= min_year
-        ) &
-        (
-            filtered_df["release_date"] <= max_year
-        )
-    ]
-
-    # =================================================
-    # GENRE
-    # =================================================
-
-    if genre and genre != "Any":
-
-        filtered_df = filtered_df[
-            filtered_df["genre"]
-            .fillna("")
-            .str.lower()
-            .str.contains(
-                genre.lower(),
-                na=False
-            )
-        ]
-
-    # =================================================
-    # CONTENT TYPE
-    # =================================================
-
-    tags_series = (
-        filtered_df["popular_tags"]
-        .fillna("")
-        .str.lower()
-    )
-
-    if content_type == "Adult":
-
-        pattern = "|".join(ADULT_TAGS)
-
-        filtered_df = filtered_df[
-            tags_series.str.contains(
-                pattern,
-                regex=True,
-                na=False
-            )
-        ]
-
-    elif content_type == "Kids":
-
-        pattern = "|".join(KIDS_TAGS)
-
-        filtered_df = filtered_df[
-            tags_series.str.contains(
-                pattern,
-                regex=True,
-                na=False
-            )
-        ]
-
-    elif content_type == "Safe":
-
-        pattern = "|".join(ADULT_TAGS)
-
-        filtered_df = filtered_df[
-            ~tags_series.str.contains(
-                pattern,
-                regex=True,
-                na=False
-            )
-        ]
-
-    return filtered_df
-
-
-# =====================================================
-# QUERY
-# =====================================================
 
 def query_games(
-    consulta,
+    query,
     df,
     embeddings,
     model,
@@ -226,99 +23,124 @@ def query_games(
     max_year=2030
 ):
 
-    # =================================================
-    # QUERY REWRITING
-    # =================================================
+    # =========================
+    # QUERY REWRITE
+    # =========================
 
     rewritten_query = rewrite_query(
-        consulta
+        query
     )
 
-    print("\n==========================")
-    print("ORIGINAL QUERY:")
-    print(consulta)
-
-    print("\nREWRITTEN QUERY:")
-    print(rewritten_query)
-    print("==========================\n")
-
-    # =================================================
+    # =========================
     # FILTERS
-    # =================================================
+    # =========================
 
-    filtered_df = apply_hard_filters(
-        df=df,
-        genre=genre,
-        content_type=content_type,
-        min_price=min_price,
-        max_price=max_price,
-        min_year=min_year,
-        max_year=max_year
-    )
+    filtered_df = df.copy()
+
+    filtered_df = filtered_df[
+
+        (
+            filtered_df["price_num"]
+            >= min_price
+        ) &
+
+        (
+            filtered_df["price_num"]
+            <= max_price
+        ) &
+
+        (
+            filtered_df["year"]
+            >= min_year
+        ) &
+
+        (
+            filtered_df["year"]
+            <= max_year
+        )
+
+    ]
+
+    if genre and genre != "all":
+
+        filtered_df = filtered_df[
+            filtered_df["genres"]
+            .str.contains(
+                genre,
+                case=False,
+                na=False
+            )
+        ]
+
+    if (
+        content_type and
+        content_type != "all"
+    ):
+
+        filtered_df = filtered_df[
+            filtered_df["content_type"]
+            == content_type
+        ]
 
     if len(filtered_df) == 0:
 
-        return []
+        return [], rewritten_query
 
-    # =================================================
-    # EMBEDDINGS ALIGNMENT
-    # =================================================
+    # =========================
+    # ALIGN EMBEDDINGS
+    # =========================
 
-    filtered_indices = filtered_df.index.to_numpy()
-
-    valid_mask = filtered_indices < len(embeddings)
+    filtered_indices = (
+        filtered_df.index.to_numpy()
+    )
 
     filtered_indices = filtered_indices[
-        valid_mask
+        filtered_indices < len(embeddings)
     ]
 
-    filtered_df = filtered_df.iloc[
-        valid_mask
+    filtered_df = filtered_df.loc[
+        filtered_indices
     ]
 
     filtered_embeddings = embeddings[
         filtered_indices
     ]
 
-    filtered_df = filtered_df.reset_index(
-        drop=True
-    )
-
-    # =================================================
+    # =========================
     # QUERY EMBEDDING
-    # =================================================
+    # =========================
 
     query_embedding = model.encode(
-        rewritten_query,
-        convert_to_tensor=True,
+        [rewritten_query],
         normalize_embeddings=True
     )
 
-    if isinstance(filtered_embeddings, np.ndarray):
-
-        filtered_embeddings = torch.tensor(
-            filtered_embeddings,
-            dtype=torch.float32
-        )
-
-    cosine_scores = util.cos_sim(
+    similarities = cosine_similarity(
         query_embedding,
         filtered_embeddings
     )[0]
 
-    # =================================================
+    filtered_df = filtered_df.copy()
+
+    filtered_df["similarity"] = similarities
+
+    # =========================
     # NAME BOOST
-    # =================================================
+    # =========================
 
-    query_words = rewritten_query.lower().split()
+    boosts = []
 
-    for idx, row in filtered_df.iterrows():
+    query_words = (
+        query.lower().split()
+    )
 
-        game_name = str(
-            row.get("name", "")
-        ).lower()
+    for _, row in filtered_df.iterrows():
 
         boost = 0
+
+        game_name = str(
+            row["name"]
+        ).lower()
 
         for word in query_words:
 
@@ -326,110 +148,77 @@ def query_games(
 
                 boost += 0.08
 
-        cosine_scores[idx] += boost
+        boosts.append(boost)
 
-    # =================================================
-    # TOP RESULTS
-    # =================================================
+    filtered_df["boost"] = boosts
 
-    n_top = min(
-        n_top,
-        len(filtered_df)
+    filtered_df["final_score"] = (
+
+        filtered_df["similarity"] +
+
+        filtered_df["boost"]
+
     )
 
-    top_results = torch.topk(
-        cosine_scores,
-        k=n_top
+    # =========================
+    # SORT
+    # =========================
+
+    results = (
+        filtered_df
+        .sort_values(
+            by="final_score",
+            ascending=False
+        )
+        .head(n_top)
     )
 
-    resultados = []
+    final_results = []
 
-    for score, idx in zip(
-        top_results.values,
-        top_results.indices
-    ):
+    for _, row in results.iterrows():
 
-        game = filtered_df.iloc[
-            idx.item()
-        ]
+        final_results.append({
 
-        url = game.get("url", "")
+            "name":
+                row["name"],
 
-        image_url = None
+            "genres":
+                row["genres"],
 
-        steam_price = None
-        discount_price = None
-        discount_percent = 0
+            "tags":
+                row["tags"],
 
-        try:
+            "year":
+                int(row["year"]),
 
-            if "/app/" in url:
+            "price":
+                row["price"],
 
-                app_id = (
-                    url.split("/app/")[1]
-                    .split("/")[0]
-                )
+            "steam_price":
+                row["price"],
 
-                image_url = (
-                    "https://cdn.cloudflare.steamstatic.com/"
-                    f"steam/apps/{app_id}/capsule_616x353.jpg"
-                )
+            "similarity":
+                round(
+                    float(
+                        row["similarity"]
+                    ),
+                    4
+                ),
 
-                steam_data = get_steam_price(
-                    app_id
-                )
+            "image_url":
+                row["header_image"]
+                if "header_image"
+                in row
+                else "",
 
-                if steam_data:
-
-                    steam_price = steam_data["steam_price"]
-
-                    discount_price = steam_data["discount_price"]
-
-                    discount_percent = steam_data["discount_percent"]
-
-        except Exception as e:
-
-            print(e)
-
-        resultados.append({
-
-            "name": str(
-                game.get("name", "")
-            ),
-
-            "score": float(
-                round(score.item(), 4)
-            ),
-
-            "genre": str(
-                game.get("genre", "")
-            ),
-
-            "tags": str(
-                game.get("popular_tags", "")
-            ),
-
-            "price": float(
-                game.get("original_price", 0)
-            ),
-
-            "steam_price": steam_price,
-
-            "discount_price": discount_price,
-
-            "discount_percent": int(
-                discount_percent
-            ),
-
-            "year": int(
-                game.get("release_date", 0)
-            ),
-
-            "url": str(url),
-
-            "image_url": image_url,
-
-            "rewritten_query": rewritten_query
+            "steam_url":
+                row["steamspy_url"]
+                if "steamspy_url"
+                in row
+                else ""
         })
 
-    return resultados
+    return (
+        final_results,
+        rewritten_query
+    )

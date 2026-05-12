@@ -1,5 +1,10 @@
 import pandas as pd
 
-def load_raw_data(csv_path):
 
-    return pd.read_csv(csv_path)
+def load_data():
+
+    df = pd.read_csv(
+        "raw_data/steam_games.csv"
+    )
+
+    return df
